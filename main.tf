@@ -6,21 +6,21 @@ locals {
   aws_account_id  = one(data.aws_caller_identity.current.*.id)
   aws_region_name = one(data.aws_region.current.*.name)
   aws_partition   = one(data.aws_partition.current.*.partition)
-  aws_image_id    = module.this.enabled ? data.aws_ssm_parameter.linux_ami[0].value : ""
 
+  aws_image_id          = local.enabled ? data.aws_ssm_parameter.linux_ami[0].value : ""
   aws_instance_vpc_id   = one(data.aws_subnet.lookup.*.vpc_id)
-  aws_instance_userdata = base64encode(module.this.enabled ? data.template_cloudinit_config.this[0].rendered : "")
+  aws_instance_userdata = base64encode(local.enabled ? data.template_cloudinit_config.this[0].rendered : "")
 
   eip_enabled           = var.server_instances.eip_enabled
   eip_count             = local.eip_enabled ? var.server_instances.count : 0
   eip_manager_key_name  = "aws-eip-pool"
-  eip_manager_key_value = module.this.id
+  eip_manager_key_value = module.k3s_label.id
 
   k3s_version       = var.k3s_version
-  k3s_cluster_token = local.enabled ? random_password.kube_cluster_token[0].result : ""
+  k3s_cluster_token = local.enabled ? random_password.k3s_cluster_token[0].result : ""
   k3s_cluster_ips   = [for x in aws_eip.this : x.public_ip]
 
-  ssm_param_namespace = trimsuffix(coalesce(var.ssm_param_namespace, "/k3s-cluster/${local.name}"), "/")
+  ssm_param_namespace = "/${trim(coalesce(var.ssm_param_namespace, "/k3s-cluster/${local.name}"), "/")}"
 
   ssm_sessions = {
     enabled          = var.ssm_sessions.enabled
@@ -29,20 +29,20 @@ locals {
 }
 
 data "aws_caller_identity" "current" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
 }
 
 data "aws_partition" "current" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
 }
 
 data "aws_region" "current" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
 }
 
-# ================================================================== service ===
+# ================================================================== cluster ===
 
-module "k3s_cluster_label" {
+module "k3s_label" {
   source  = "cloudposse/label/null"
   version = "0.25.0"
 
@@ -59,7 +59,15 @@ resource "random_string" "k3s_cluster_random_suffix" {
 
 # ------------------------------------------------------------------- server ---
 
-module "server" {
+module "k3s_server_label" {
+  source  = "cloudposse/label/null"
+  version = "0.25.0"
+
+  attributes = ["server"]
+  context    = module.k3s_label.context
+}
+
+module "k3s_servers" {
   source  = "cloudposse/ec2-autoscale-group/aws"
   version = "0.41.0"
 
@@ -72,7 +80,7 @@ module "server" {
   update_default_version  = true
   launch_template_version = "$Latest"
 
-  instance_refresh = { # todo remove
+  instance_refresh = {
     strategy = "Rolling"
     preferences = {
       min_healthy_percentage = 100
@@ -80,7 +88,7 @@ module "server" {
     }
   }
 
-  iam_instance_profile_name               = module.this.enabled ? resource.aws_iam_instance_profile.this[0].id : null
+  iam_instance_profile_name               = local.enabled ? resource.aws_iam_instance_profile.this[0].id : null
   key_name                                = var.server_instances.key_name
   metadata_http_tokens_required           = true
   metadata_instance_metadata_tags_enabled = true
@@ -109,27 +117,27 @@ module "server" {
   security_group_ids          = concat([module.security_group.id], var.vpc_security_group_ids)
 
   tags = merge(
-    module.this.tags,
-    { Name = module.this.id },
-    { k3s-cluster = module.this.id },
+    module.k3s_label.tags,
+    { Name = module.k3s_label.id },
+    { k3s-cluster = module.k3s_label.id },
     { k3s-role = "server" },
     local.eip_enabled ? { (local.eip_manager_key_name) = local.eip_manager_key_value } : {},
   )
 
-  context = module.this.context
+  context = module.k3s_server_label.context
 }
 
 # -------------------------------------------------------------------- agent ---
 
-module "agent_label" {
+module "k3s_agent_label" {
   source  = "cloudposse/label/null"
   version = "0.25.0"
 
   attributes = ["agent"]
-  context    = module.this.context
+  context    = module.k3s_label.context
 }
 
-module "agent" {
+module "k3s_agents" {
   source  = "cloudposse/ec2-autoscale-group/aws"
   version = "0.41.0"
 
@@ -150,7 +158,7 @@ module "agent" {
     }
   }
 
-  iam_instance_profile_name               = module.this.enabled ? resource.aws_iam_instance_profile.this[0].id : null
+  iam_instance_profile_name               = local.enabled ? resource.aws_iam_instance_profile.this[0].id : null
   key_name                                = var.agent_instances.key_name
   metadata_http_tokens_required           = true
   metadata_instance_metadata_tags_enabled = true
@@ -180,18 +188,18 @@ module "agent" {
   security_group_ids          = concat([module.security_group.id], var.vpc_security_group_ids)
 
   tags = merge(
-    module.agent_label.tags,
-    { Name = module.agent_label.id },
-    { k3s-cluster = module.this.id },
+    module.k3s_agent_label.tags,
+    { Name = module.k3s_agent_label.id },
+    { k3s-cluster = module.k3s_label.id },
     { k3s-role = "agent" }
   )
 
-  context = module.agent_label.context
+  context = module.k3s_agent_label.context
 }
 
 # ------------------------------------------------------------------- shared ---
 
-resource "random_password" "kube_cluster_token" {
+resource "random_password" "k3s_cluster_token" {
   count = local.enabled ? 1 : 0
 
   length  = 32
@@ -199,7 +207,7 @@ resource "random_password" "kube_cluster_token" {
 }
 
 data "template_cloudinit_config" "this" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
 
   gzip          = true
   base64_encode = true
@@ -229,11 +237,11 @@ data "template_cloudinit_config" "this" {
 }
 
 resource "aws_cloudwatch_log_group" "this" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
 
-  name              = module.this.id
+  name              = module.k3s_label.id
   retention_in_days = var.logs_group_retention
-  tags              = module.this.tags
+  tags              = module.k3s_label.tags
 }
 
 # =============================================================== networking ===
@@ -271,8 +279,8 @@ module "security_group" {
     }] : []
   )
 
-  tags    = merge(module.this.tags, { Name = module.this.id }, {})
-  context = module.this.context
+  tags    = merge(module.k3s_label.tags, { Name = module.k3s_label.id }, {})
+  context = module.k3s_label.context
 }
 
 # --------------------------------------------------------------------- eips ---
@@ -281,8 +289,8 @@ resource "aws_eip" "this" {
   count = local.eip_count
 
   tags = merge(
-    module.this.tags,
-    { "Name" = module.this.id },
+    module.k3s_label.tags,
+    { "Name" = module.k3s_label.id },
     { (local.eip_manager_key_name) = local.eip_manager_key_value },
   )
 }
@@ -294,24 +302,24 @@ module "eip_manager" {
   enabled         = local.eip_enabled
   attributes      = ["eip-manager"]
   pool_tag_key    = local.eip_manager_key_name
-  pool_tag_values = [module.this.id]
+  pool_tag_values = [module.k3s_label.id]
 
-  context = module.this.context
+  context = module.k3s_label.context
 }
 
 # ====================================================================== iam ===
 
 resource "aws_iam_instance_profile" "this" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
 
-  name = module.this.id
+  name = module.k3s_label.id
   role = aws_iam_role.this[0].name
 }
 
 resource "aws_iam_role" "this" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
 
-  name                 = module.this.id
+  name                 = module.k3s_label.id
   description          = ""
   max_session_duration = "3600"
 
@@ -324,30 +332,30 @@ resource "aws_iam_role" "this" {
     }]
   })
 
-  tags = module.this.tags
+  tags = module.k3s_label.tags
 }
 
 resource "aws_iam_role_policy_attachment" "this" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
 
   role       = resource.aws_iam_role.this[0].name
   policy_arn = resource.aws_iam_policy.this[0].arn
 }
 
 resource "aws_iam_role_policy_attachment" "ssm_managed_instance_core" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
 
   role       = resource.aws_iam_role.this[0].name
   policy_arn = "arn:${local.aws_partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_policy" "this" {
-  count  = module.this.enabled ? 1 : 0
+  count  = local.enabled ? 1 : 0
   policy = data.aws_iam_policy_document.this[0].json
 }
 
 data "aws_iam_policy_document" "this" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
 
   statement {
     sid    = "AllowCWAgentLogging"
@@ -410,12 +418,12 @@ data "aws_iam_policy_document" "this" {
 # ================================================================== lookups ===
 
 data "aws_subnet" "lookup" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
   id    = var.server_instances.vpc_subnet_ids[0]
 }
 
 data "aws_ssm_parameter" "linux_ami" {
-  count = module.this.enabled ? 1 : 0
+  count = local.enabled ? 1 : 0
   name  = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eo pipefail
 
-# ------------------------------------------------------------ script inputs ---
+# --------------------------------------------------------- terraform inputs ---
 
 K3S_VERSION=${k3s_version}
 K3S_CLUSTER_TOKEN=${k3s_cluster_token}
