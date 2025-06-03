@@ -1,36 +1,44 @@
 # terraform-aws-k3s
 
-Provision a K3s cluster on AWS using EC2. Automatically elect a control-plane
-leader to initalize the cluster, install K3s, and publish the kubeconfig back to
-SSM. Optional worker (agent) nodes join automatically.
+## Overview
 
-## Why K3s vs EKS
+This module provisions a self-managed K3s cluster on AWS EC2, eliminating the
+$300/month EKS control-plane fee and giving you full control over node sizing,
+scaling, and networking. All nodes bootstrap themselves without external
+orchestration or SSH access. In just a few lines of Terraform, you get:
 
-* **Lower control-plane cost**
-  * EKS control-plane alone costs around $300/month before any worker nodes are
-    added. With K3s on EC2, you pay only for the EC2 instances you run,
-    avoiding that fixed control-plane charge.
-* **Simplified setup**
-  * K3s requires a single server to get a fully functional cluster, making it
-    ideal for personal use, small teams, test environments, or cost-sensitive
-    workloads.
-* **Full flexibility**
-  * You manage your own nodes directly and can tailor instance types, scaling
-    policies, and networking without provider-managed constraints.
+- **Automated leader election**
+  Server nodes automatically elect a leader to initialize the control plane.
+- **Kubeconfig in SSM**
+  The leader publishes its kubeconfig to SSM so you can fetch it securely and
+  start using kubectl immediately.
+- **Auto-joining agents**
+  Worker (agent) nodes wait for the control plane to be ready, then join
+  automatically without manual intervention.
+- **Minimal IAM footprint**
+  Nodes receive only the permissions they need—SSM parameter access, EC2
+  describe, self-termination, and CloudWatch Logs.
+- **Built-in CloudWatch logging**
+  Every node installs the CloudWatch Agent to stream EC2 instance logs to a
+  dedicated log group (does not include pod logs). Retention is configurable.
+- **Optional Elastic IP support**
+  If enabled, EIPs are allocated and attached to server nodes via a companion
+  EIP manager module.
+- **Single shared security group**
+  All servers and agents share one security group. Only port 6443 is exposed
+  to your admin CIDRs; intra-cluster traffic is unrestricted.
 
-## Features
+## Why use this instead of EKS?
 
-* **High-availability control plane**
-  * Automatically elect a leader and initialize the cluster without manual
-    intervention.
-* **Optional agent Auto Scaling Group**
-  * Workers join the cluster once control plane is ready; supports spot or
-    on-demand instances.
-* **Elastic IP support (optional)**
-  * Allocate and attach stable public IPs to server instances.
-* **Minimal IAM footprint**
-  * EC2 role grants only the necessary permissions for SSM, CloudWatch Logs, and
-    EC2 Describe.
+- **Avoid fixed control plane cost**
+  EKS control plane alone is $300/month. With this module, you pay only for
+  the EC2 instances you launch.
+- **Simplified, lean setup**
+  A single EC2 instance can stand up a full K3s control plane (embedded etcd).
+  Perfect for dev/staging, small teams, or cost-sensitive workloads.
+- **Hands-on flexibility**
+  You choose instance types, replica counts, spot vs on-demand, tagging, and
+  scaling. Updates and upgrades are fully under your control.
 
 ## Basic Usage
 
