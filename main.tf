@@ -369,7 +369,7 @@ data "aws_iam_policy_document" "this" {
     ]
     resources = [
       aws_cloudwatch_log_group.this[0].arn,
-      "${aws_cloudwatch_log_group.this[0].arn}:log-stream:*"
+      "${aws_cloudwatch_log_group.this[0].arn}:log-stream:*",
     ]
   }
 
@@ -381,7 +381,7 @@ data "aws_iam_policy_document" "this" {
       "ssm:GetParameter",
     ]
     resources = [
-      "arn:${local.aws_partition}:ssm:${local.aws_region_name}:${local.aws_account_id}:parameter/${trimprefix(local.ssm_param_namespace, "/")}/*"
+      "arn:${local.aws_partition}:ssm:${local.aws_region_name}:${local.aws_account_id}:parameter/${trimprefix(local.ssm_param_namespace, "/")}/*",
     ]
   }
 
@@ -392,6 +392,21 @@ data "aws_iam_policy_document" "this" {
       "ec2:DescribeInstances",
     ]
     resources = ["*"]
+  }
+
+  statement {
+    sid    = "AllowEc2TerminateInstanceSelf"
+    effect = "Allow"
+    actions = [
+      "ec2:TerminateInstances",
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:InstanceId"
+      values   = ["$${ec2:InstanceId}"]
+    }
   }
 
   dynamic "statement" {
@@ -409,7 +424,7 @@ data "aws_iam_policy_document" "this" {
       ]
       resources = [
         "arn:${local.aws_partition}:s3:::${var.ssm_sessions.logs_bucket_name}",
-        "arn:${local.aws_partition}:s3:::${var.ssm_sessions.logs_bucket_name}/*"
+        "arn:${local.aws_partition}:s3:::${var.ssm_sessions.logs_bucket_name}/*",
       ]
     }
   }

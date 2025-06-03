@@ -84,6 +84,12 @@ get_ec2_instance_ip() {
   echo $INSTANCE_IP
 }
 
+terminate_ec2_instance() {
+  INSTANCE_ID="$1"
+  aws ec2 terminate-instance --instance-ids $INSTANCE_ID \
+    --region "$AWS_REGION"
+}
+
 get_k3s_server_private_ip() {
   aws ec2 describe-instances \
     --filters \
@@ -164,7 +170,8 @@ if [[ "$K3S_ROLE" == "server" ]]; then
       [[ "$LEADER_STATUS" == "COMPLETED" ]] && break
       [[ "$WAIT_TIME_TOTAL" -ge "$WAIT_TIME_MAX" ]] && {
         echo "timeout waiting for cluster init" >&2
-        exit 1
+        sleep 5 # allow time to flush logs to cloudwatch
+        terminate_ec2_instance $INSTANCE_ID
       }
       sleep 5
       WAIT_TIME_TOTAL=$((WAIT_TIME_TOTAL + 5))
@@ -174,7 +181,8 @@ if [[ "$K3S_ROLE" == "server" ]]; then
     [[ -z "$SERVER_IP" || "$SERVER_IP" == "None" ]] && SERVER_IP=$(get_k3s_server_private_ip)
     [[ -z "$SERVER_IP" ]] && {
       echo "server ip not found" >&2
-      exit 1
+      sleep 5 # allow time to flush logs to cloudwatch
+      terminate_ec2_instance $INSTANCE_ID
     }
 
     install_k3s $K3S_VERSION $K3S_CLUSTER_TOKEN "server --server https://$SERVER_IP:6443 --tls-san $INSTANCE_IP"
@@ -192,11 +200,16 @@ else
     fi
     [[ "$WAIT_TIME_TOTAL" -ge "$WAIT_TIME_MAX" ]] && {
       echo "timeout waiting for server ip" >&2
-      exit 1
+      sleep 5 # allow time to flush logs to cloudwatch
+      terminate_ec2_instance $INSTANCE_ID
     }
     sleep 5
     WAIT_TIME_TOTAL=$((WAIT_TIME_TOTAL + 5))
   done
 
   install_k3s $K3S_VERSION $K3S_CLUSTER_TOKEN "agent --server https://$SERVER_IP:6443"
+fi
+
+if [[ ! -f /usr/local/bin/k3s ]]; then
+  terminate_ec2_instance $INSTANCE_ID
 fi
