@@ -118,13 +118,18 @@ module "k3s_servers" {
 
   tags = merge(
     module.k3s_label.tags,
-    { Name = module.k3s_label.id },
+    { Name = module.k3s_server_label.id },
     { k3s-cluster = module.k3s_label.id },
     { k3s-role = "server" },
     local.eip_enabled ? { (local.eip_manager_key_name) = local.eip_manager_key_value } : {},
   )
 
   context = module.k3s_server_label.context
+
+  depends_on = [
+    aws_eip.this,
+    module.eip_manager,
+  ]
 }
 
 # -------------------------------------------------------------------- agent ---
@@ -195,6 +200,11 @@ module "k3s_agents" {
   )
 
   context = module.k3s_agent_label.context
+
+  depends_on = [
+    aws_eip.this,
+    module.eip_manager,
+  ]
 }
 
 # ------------------------------------------------------------------- shared ---
@@ -214,11 +224,7 @@ data "template_cloudinit_config" "this" {
 
   part {
     content_type = "text/x-shellscript"
-    content = templatefile("${path.module}/assets/userdata.sh", {
-      k3s_version         = local.k3s_version
-      k3s_cluster_token   = local.k3s_cluster_token
-      ssm_param_namespace = local.ssm_param_namespace
-    })
+    content      = file("${path.module}/assets/provision.sh")
   }
 
   part {
@@ -232,7 +238,11 @@ data "template_cloudinit_config" "this" {
 
   part {
     content_type = "text/x-shellscript"
-    content      = file("${path.module}/assets/provision.sh")
+    content = templatefile("${path.module}/assets/userdata.sh", {
+      k3s_version         = local.k3s_version
+      k3s_cluster_token   = local.k3s_cluster_token
+      ssm_param_namespace = local.ssm_param_namespace
+    })
   }
 }
 
@@ -293,6 +303,10 @@ resource "aws_eip" "this" {
     { "Name" = module.k3s_label.id },
     { (local.eip_manager_key_name) = local.eip_manager_key_value },
   )
+
+  depends_on = [
+    module.eip_manager
+  ]
 }
 
 module "eip_manager" {
@@ -302,7 +316,7 @@ module "eip_manager" {
   enabled         = local.eip_enabled
   attributes      = ["eip-manager"]
   pool_tag_key    = local.eip_manager_key_name
-  pool_tag_values = [module.k3s_label.id]
+  pool_tag_values = [local.eip_manager_key_value]
 
   context = module.k3s_label.context
 }
