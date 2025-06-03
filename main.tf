@@ -96,7 +96,7 @@ module "k3s_servers" {
   autoscaling_policies_enabled      = false
   desired_capacity                  = var.server_instances.count
   min_size                          = var.server_instances.count
-  max_size                          = var.server_instances.count + max(floor(var.server_instances.count / 0.25), 2)
+  max_size                          = var.server_instances.count + max(floor(var.server_instances.count * 0.25), 2)
   wait_for_capacity_timeout         = "300s"
   tag_specifications_resource_types = ["instance", "volume"]
 
@@ -166,7 +166,7 @@ module "k3s_agents" {
   autoscaling_policies_enabled      = false
   desired_capacity                  = var.agent_instances.count
   min_size                          = var.agent_instances.count
-  max_size                          = var.agent_instances.count + max(floor(var.agent_instances.count / 0.25), 2)
+  max_size                          = var.agent_instances.count + max(floor(var.agent_instances.count * 0.25), 2)
   max_instance_lifetime             = "604800"
   wait_for_capacity_timeout         = "300s"
   tag_specifications_resource_types = ["instance", "volume", "spot-instances-request"]
