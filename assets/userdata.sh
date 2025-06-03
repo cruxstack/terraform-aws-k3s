@@ -77,16 +77,18 @@ get_ec2_instance_public_ip() {
 }
 
 get_ec2_instance_ip() {
+  local INSTANCE_ID=$1
+  local INSTANCE_IP
   INSTANCE_IP=$(get_ec2_instance_public_ip "$INSTANCE_ID")
   if [[ -z "$INSTANCE_IP" || "$INSTANCE_IP" == "None" ]]; then
     INSTANCE_IP=$(get_ec2_instance_private_ip "$INSTANCE_ID")
   fi
-  echo $INSTANCE_IP
+  echo "$INSTANCE_IP"
 }
 
 terminate_ec2_instance() {
   INSTANCE_ID="$1"
-  aws ec2 terminate-instance --instance-ids $INSTANCE_ID \
+  aws ec2 terminate-instances --instance-ids $INSTANCE_ID \
     --region "$AWS_REGION"
 }
 
