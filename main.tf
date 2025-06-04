@@ -311,7 +311,7 @@ resource "aws_eip" "this" {
 
 module "eip_manager" {
   source  = "cruxstack/eip-manager/aws"
-  version = "0.2.0"
+  version = "0.3.0"
 
   enabled         = local.eip_enabled
   attributes      = ["eip-manager"]
