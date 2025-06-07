@@ -76,7 +76,19 @@ variable "ssm_param_namespace" {
   type    = string
   default = "/k3s-cluster"
 }
+
 # --------------------------------------------------------------- networking ---
+
+variable "dns" {
+  type = object({
+    enabled          = optional(bool, false)
+    parent_zone_id   = optional(string, "")
+    parent_zone_name = optional(string, "")
+    names            = optional(list(string), [])
+    ttl              = optional(number, 300)
+  })
+  default = {}
+}
 
 variable "vpc_security_group_ids" {
   type        = list(string)

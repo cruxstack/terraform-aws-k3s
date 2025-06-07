@@ -11,10 +11,16 @@ locals {
   aws_instance_vpc_id   = one(data.aws_subnet.lookup.*.vpc_id)
   aws_instance_userdata = base64encode(local.enabled ? data.template_cloudinit_config.this[0].rendered : "")
 
+  dns_enabled        = local.enabled && local.eip_enabled && var.dns.enabled
+  dns_names          = var.dns.names
+  dns_ttl            = var.dns.ttl
+  dns_parent_zone_id = var.dns.parent_zone_id
+
   eip_enabled           = var.server_instances.eip_enabled
   eip_count             = local.eip_enabled ? var.server_instances.count : 0
   eip_manager_key_name  = "aws-eip-pool"
   eip_manager_key_value = module.k3s_label.id
+  eip_public_ips        = aws_eip.this.*.public_ip
 
   k3s_version       = var.k3s_version
   k3s_cluster_token = local.enabled ? random_password.k3s_cluster_token[0].result : ""
@@ -319,6 +325,20 @@ module "eip_manager" {
   pool_tag_values = [local.eip_manager_key_value]
 
   context = module.k3s_label.context
+}
+
+# ---------------------------------------------------------------------- dns ---
+
+resource "aws_route53_record" "this" {
+  for_each = toset(local.dns_names)
+
+  zone_id         = local.dns_parent_zone_id
+  name            = each.key
+  type            = "A"
+  allow_overwrite = true
+
+  ttl     = local.dns_ttl
+  records = local.eip_public_ips
 }
 
 # ====================================================================== iam ===
