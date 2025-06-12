@@ -5,7 +5,14 @@ set -eo pipefail
 
 K3S_VERSION=${k3s_version}
 K3S_CLUSTER_TOKEN=${k3s_cluster_token}
+K3S_CLUSTER_DOMAIN=${k3s_cluster_domain}
+IRSA_ENABLED=${irsa_enabled}
+IRSA_BUCKET_NAME=${irsa_bucket_name}
+IRSA_ISSUER_URL=${irsa_issuer_url}
 SSM_PARAM_NAMESPACE=${ssm_param_namespace}
+
+K3S_SA_PRIVATE_KEY=${k3s_sa_private_key}
+K3S_SA_PUBLIC_KEY=${k3s_sa_public_key}
 
 # ---------------------------------------------------------------------- fns ---
 
@@ -119,31 +126,84 @@ install_k3s() {
       sh -s - $K3S_INSTALL_ARGS
 }
 
+install_k3s_irsa_certs() {
+  local IRSA_ISSUER_URL=$1
+
+  { # quiet section
+    K3S_SERVER_TLS_DIR=/etc/rancher/k3s/tls
+    mkdir -p "$K3S_SERVER_TLS_DIR"
+    pushd "$K3S_SERVER_TLS_DIR" >/dev/null
+    echo "$K3S_SA_PRIVATE_KEY" | base64 -d >oidc-issuer.key
+    chmod 0600 *.key
+    echo "$K3S_SA_PUBLIC_KEY" | base64 -d >oidc-issuer.pub
+    popd >/dev/null
+  } >/dev/null 2>&1
+
+  IRSA_ARGS=""
+  IRSA_ARGS+=" --kube-apiserver-arg=api-audiences=sts.amazonaws.com"
+  IRSA_ARGS+=" --kube-apiserver-arg=service-account-issuer=$IRSA_ISSUER_URL"
+  IRSA_ARGS+=" --kube-apiserver-arg=service-account-key-file=$K3S_SERVER_TLS_DIR/oidc-issuer.pub"
+  IRSA_ARGS+=" --kube-apiserver-arg=service-account-signing-key-file=$K3S_SERVER_TLS_DIR/oidc-issuer.key"
+  IRSA_ARGS+=" --kube-apiserver-arg=service-account-issuer=k3s"
+  IRSA_ARGS+=" --kube-apiserver-arg=service-account-key-file=/var/lib/rancher/k3s/server/tls/service.key"
+
+  echo $IRSA_ARGS
+}
+
+publish_k3s_irsa_certs() {
+  local IRSA_ISSUER_URL=$1
+  local IRSA_BUCKET_NAME=$2
+
+  local OIDC_TMP="/tmp/oidc"
+  mkdir -p "$OIDC_TMP/.well-known"
+  mkdir -p "$OIDC_TMP/openid/v1"
+
+  local OIDC_CFG="{
+    \"issuer\":\"$IRSA_ISSUER_URL\",
+    \"jwks_uri\":\"$IRSA_ISSUER_URL/openid/v1/jwks\",
+    \"authorization_endpoint\":\"urn:kubernetes:programmatic_authorization\",
+    \"response_types_supported\":[\"id_token\"],
+    \"subject_types_supported\":[\"public\"],
+    \"id_token_signing_alg_values_supported\":[\"RS256\"],
+    \"claims_supported\":[\"sub\",\"iss\"]
+  }"
+  local OIDC_JWKS
+  OIDC_JWKS=$(kubectl get --raw /openid/v1/jwks | jq -c)
+
+  echo $OIDC_CFG | jq -c >"$OIDC_TMP/.well-known/openid-configuration"
+  echo $OIDC_JWKS >"$OIDC_TMP/openid/v1/jwks"
+  aws s3 sync "$OIDC_TMP" "s3://$IRSA_BUCKET_NAME" --content-type "application/json" --region "$AWS_REGION"
+}
+
 publish_k3s_kubeconfig() {
   local PARAM_PATH="$1"
   local INSTANCE_ID="$2"
-  local INSTANCE_IP
+  local K3S_CLUSTER_HOST="$3"
   local K3S_KUBECONFIG
   local K3S_KUBECONFIG_LOCAL_PATH="/etc/rancher/k3s/k3s.yaml"
 
   # ensure file exists before continuing
-  for _ in {1..60}; do
+  for _ in {1..300}; do
     [[ -f "$K3S_KUBECONFIG_LOCAL_PATH" ]] && break
     sleep 1
   done
 
-  INSTANCE_IP=$(get_ec2_instance_ip "$INSTANCE_ID")
-  [[ -z "$INSTANCE_IP" || "$INSTANCE_IP" == "None" ]] && {
-    echo "unable to resolve leader ip" >&2
-    return 1
-  }
+  if [[ "$K3S_CLUSTER_HOST" == "" ]]; then
+    K3S_CLUSTER_HOST=$(get_ec2_instance_ip "$INSTANCE_ID")
+    [[ -z "$K3S_CLUSTER_HOST" || "$K3S_CLUSTER_HOST" == "None" ]] && {
+      echo "unable to resolve leader ip" >&2
+      return 1
+    }
+  fi
 
   # replace server address
-  K3S_KUBECONFIG=$(sed -e "s#https://.*#https://$INSTANCE_IP:6443#" "$K3S_KUBECONFIG_LOCAL_PATH")
+  K3S_KUBECONFIG=$(sed -e "s#https://.*#https://$K3S_CLUSTER_HOST:6443#" "$K3S_KUBECONFIG_LOCAL_PATH")
   set_ssm_param "$PARAM_PATH" "$K3S_KUBECONFIG" SecureString
 }
 
 # ------------------------------------------------------------------- script ---
+
+SETUP_WORKSPACE=/tmp/workspace
 
 AWS_REGION=$(get_aws_region)
 K3S_ROLE=$(get_ec2_instance_tag k3s-role)
@@ -155,14 +215,33 @@ SSM_PARAM_KUBECONFIG="$SSM_PARAM_NAMESPACE/server/kubeconfig"
 WAIT_TIME_MAX=600 # 10 mins
 WAIT_TIME_TOTAL=0
 
+mkdir -p $SETUP_WORKSPACE
+cd $SETUP_WORKSPACE
+
 if [[ "$K3S_ROLE" == "server" ]]; then
   INSTANCE_IP=$(get_ec2_instance_ip "$INSTANCE_ID")
 
+  K3S_TTL_SAN=$INSTANCE_IP
+  if [[ "$K3S_CLUSTER_DOMAIN" != "" ]]; then
+    K3S_TTL_SAN=$K3S_TTL_SAN,$INSTANCE_IP
+  fi
+
+  IRSA_ARGS=""
+  if [[ "$IRSA_ENABLED" == "true" && -n "$IRSA_ISSUER_URL" ]]; then
+    IRSA_ARGS=$(install_k3s_irsa_certs $IRSA_ISSUER_URL)
+  fi
+
   if create_ssm_param "$SSM_PARAM_INIT_STATUS" "PENDING:$INSTANCE_ID"; then
     # elected as cluster leader since first to create param
-    install_k3s $K3S_VERSION $K3S_CLUSTER_TOKEN "server --cluster-init --tls-san $INSTANCE_IP"
+
+    install_k3s $K3S_VERSION $K3S_CLUSTER_TOKEN "server --cluster-init --tls-san $K3S_TTL_SAN $IRSA_ARGS"
     set_ssm_param "$SSM_PARAM_INIT_STATUS" "COMPLETED:$INSTANCE_ID"
-    publish_k3s_kubeconfig $SSM_PARAM_KUBECONFIG $INSTANCE_ID || true
+    publish_k3s_kubeconfig $SSM_PARAM_KUBECONFIG $INSTANCE_ID $K3S_CLUSTER_DOMAIN
+
+    if [[ "$IRSA_ENABLED" == "true" && -n "$IRSA_ISSUER_URL" ]]; then
+      publish_k3s_irsa_certs $IRSA_ISSUER_URL $IRSA_BUCKET_NAME
+    fi
+
   else
     # wait for cluster leader to complete k3s server init
     while true; do
@@ -187,7 +266,7 @@ if [[ "$K3S_ROLE" == "server" ]]; then
       terminate_ec2_instance $INSTANCE_ID
     }
 
-    install_k3s $K3S_VERSION $K3S_CLUSTER_TOKEN "server --server https://$SERVER_IP:6443 --tls-san $INSTANCE_IP"
+    install_k3s $K3S_VERSION $K3S_CLUSTER_TOKEN "server --server https://$SERVER_IP:6443 --tls-san $K3S_TTL_SAN $IRSA_ARGS"
   fi
 else
   # agent logic
@@ -210,8 +289,4 @@ else
   done
 
   install_k3s $K3S_VERSION $K3S_CLUSTER_TOKEN "agent --server https://$SERVER_IP:6443"
-fi
-
-if [[ ! -f /usr/local/bin/k3s ]]; then
-  terminate_ec2_instance $INSTANCE_ID
 fi

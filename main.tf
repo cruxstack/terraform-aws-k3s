@@ -16,15 +16,24 @@ locals {
   dns_ttl            = var.dns.ttl
   dns_parent_zone_id = var.dns.parent_zone_id
 
-  eip_enabled           = var.server_instances.eip_enabled
-  eip_count             = local.eip_enabled ? var.server_instances.count : 0
+  eip_enabled           = local.k3s_server_instances.eip_enabled
+  eip_count             = local.eip_enabled ? local.k3s_server_instances.count : 0
   eip_manager_key_name  = "aws-eip-pool"
   eip_manager_key_value = module.k3s_label.id
   eip_public_ips        = aws_eip.this.*.public_ip
 
-  k3s_version       = var.k3s_version
-  k3s_cluster_token = local.enabled ? random_password.k3s_cluster_token[0].result : ""
-  k3s_cluster_ips   = [for x in aws_eip.this : x.public_ip]
+  irsa_enabled           = local.enabled && var.aws_irsa.enabled
+  irsa_issuer_url        = module.irsa.issuer_url
+  irsa_bucket_arn        = module.irsa.bucket_arn
+  irsa_bucket_name       = module.irsa.bucket_name
+  irsa_oidc_provider_arn = module.irsa.oidc_provider_arn
+  irsa_smoke_enabled     = local.irsa_enabled
+
+  k3s_version          = var.k3s_version
+  k3s_cluster_token    = local.enabled ? random_password.k3s_cluster_token[0].result : ""
+  k3s_cluster_ips      = [for x in aws_eip.this : x.public_ip]
+  k3s_server_instances = var.k3s_server_instances
+  k3s_agent_instances  = var.k3s_agent_instances
 
   ssm_param_namespace = "/${trim(coalesce(var.ssm_param_namespace, "/k3s-cluster/${local.name}"), "/")}"
 
@@ -78,7 +87,7 @@ module "k3s_servers" {
   version = "0.41.0"
 
   image_id                = local.aws_image_id
-  instance_type           = var.server_instances.types[0].type
+  instance_type           = local.k3s_server_instances.types[0].type
   health_check_type       = "EC2"
   user_data_base64        = local.aws_instance_userdata
   force_delete            = true
@@ -95,14 +104,14 @@ module "k3s_servers" {
   }
 
   iam_instance_profile_name               = local.enabled ? resource.aws_iam_instance_profile.this[0].id : null
-  key_name                                = var.server_instances.key_name
+  key_name                                = local.k3s_server_instances.key_name
   metadata_http_tokens_required           = true
   metadata_instance_metadata_tags_enabled = true
 
   autoscaling_policies_enabled      = false
-  desired_capacity                  = var.server_instances.count
-  min_size                          = var.server_instances.count
-  max_size                          = var.server_instances.count + max(floor(var.server_instances.count * 0.25), 2)
+  desired_capacity                  = local.k3s_server_instances.count
+  min_size                          = local.k3s_server_instances.count
+  max_size                          = local.k3s_server_instances.count + max(floor(local.k3s_server_instances.count * 0.25), 2)
   wait_for_capacity_timeout         = "300s"
   tag_specifications_resource_types = ["instance", "volume"]
 
@@ -115,11 +124,11 @@ module "k3s_servers" {
       spot_instance_pools                      = 0
       spot_max_price                           = ""
     }
-    override = [for x in var.server_instances.types : { instance_type = x.type, weighted_capacity = x.weight }]
+    override = [for x in local.k3s_server_instances.types : { instance_type = x.type, weighted_capacity = x.weight }]
   }
 
-  associate_public_ip_address = local.eip_enabled ? false : var.server_instances.assign_public_ip
-  subnet_ids                  = var.server_instances.vpc_subnet_ids
+  associate_public_ip_address = local.eip_enabled ? false : local.k3s_server_instances.assign_public_ip
+  subnet_ids                  = local.k3s_server_instances.vpc_subnet_ids
   security_group_ids          = concat([module.security_group.id], var.vpc_security_group_ids)
 
   tags = merge(
@@ -153,7 +162,7 @@ module "k3s_agents" {
   version = "0.41.0"
 
   image_id                = local.aws_image_id
-  instance_type           = var.agent_instances.types[0].type
+  instance_type           = local.k3s_agent_instances.types[0].type
   health_check_type       = "EC2"
   user_data_base64        = local.aws_instance_userdata
   force_delete            = true
@@ -170,32 +179,32 @@ module "k3s_agents" {
   }
 
   iam_instance_profile_name               = local.enabled ? resource.aws_iam_instance_profile.this[0].id : null
-  key_name                                = var.agent_instances.key_name
+  key_name                                = local.k3s_agent_instances.key_name
   metadata_http_tokens_required           = true
   metadata_instance_metadata_tags_enabled = true
 
   autoscaling_policies_enabled      = false
-  desired_capacity                  = var.agent_instances.count
-  min_size                          = var.agent_instances.count
-  max_size                          = var.agent_instances.count + max(floor(var.agent_instances.count * 0.25), 2)
+  desired_capacity                  = local.k3s_agent_instances.count
+  min_size                          = local.k3s_agent_instances.count
+  max_size                          = local.k3s_agent_instances.count + max(floor(local.k3s_agent_instances.count * 0.25), 2)
   max_instance_lifetime             = "604800"
   wait_for_capacity_timeout         = "300s"
   tag_specifications_resource_types = ["instance", "volume", "spot-instances-request"]
 
   mixed_instances_policy = {
     instances_distribution = {
-      on_demand_base_capacity                  = var.agent_instances.spot.enabled ? 0 : 100
-      on_demand_percentage_above_base_capacity = var.agent_instances.spot.enabled ? 0 : 100
+      on_demand_base_capacity                  = local.k3s_agent_instances.spot.enabled ? 0 : 100
+      on_demand_percentage_above_base_capacity = local.k3s_agent_instances.spot.enabled ? 0 : 100
       on_demand_allocation_strategy            = "prioritized"
-      spot_allocation_strategy                 = var.agent_instances.spot.allocation_strategy
+      spot_allocation_strategy                 = local.k3s_agent_instances.spot.allocation_strategy
       spot_instance_pools                      = 0
       spot_max_price                           = ""
     }
-    override = [for x in var.agent_instances.types : { instance_type = x.type, weighted_capacity = x.weight }]
+    override = [for x in local.k3s_agent_instances.types : { instance_type = x.type, weighted_capacity = x.weight }]
   }
 
   associate_public_ip_address = false
-  subnet_ids                  = coalesce(var.agent_instances.vpc_subnet_ids, var.server_instances.vpc_subnet_ids)
+  subnet_ids                  = coalesce(local.k3s_agent_instances.vpc_subnet_ids, local.k3s_server_instances.vpc_subnet_ids)
   security_group_ids          = concat([module.security_group.id], var.vpc_security_group_ids)
 
   tags = merge(
@@ -247,7 +256,13 @@ data "template_cloudinit_config" "this" {
     content = templatefile("${path.module}/assets/userdata.sh", {
       k3s_version         = local.k3s_version
       k3s_cluster_token   = local.k3s_cluster_token
+      k3s_cluster_domain  = local.dns_enabled ? local.dns_names[0] : ""
+      irsa_enabled        = local.irsa_enabled
+      irsa_issuer_url     = local.irsa_issuer_url
+      irsa_bucket_name    = local.irsa_bucket_name
       ssm_param_namespace = local.ssm_param_namespace
+      k3s_sa_private_key  = base64encode(module.irsa.key.private_key)
+      k3s_sa_public_key   = base64encode(module.irsa.key.public_key)
     })
   }
 }
@@ -282,6 +297,28 @@ module "security_group" {
       source_security_group_id = null
       self                     = true
     }],
+    var.vpc_security_group_managed_rules.http.enabled ? [{
+      key                      = "i-web-http"
+      description              = "allow web (http) traffic"
+      type                     = "ingress"
+      protocol                 = "TCP"
+      from_port                = 80
+      to_port                  = 80
+      cidr_blocks              = var.vpc_security_group_managed_rules.http.cidrs
+      source_security_group_id = null
+      self                     = false
+    }] : [],
+    var.vpc_security_group_managed_rules.https.enabled ? [{
+      key                      = "i-web-https"
+      description              = "allow web (https) traffic"
+      type                     = "ingress"
+      protocol                 = "TCP"
+      from_port                = 443
+      to_port                  = 443
+      cidr_blocks              = var.vpc_security_group_managed_rules.https.cidrs
+      source_security_group_id = null
+      self                     = false
+    }] : [],
     length(var.k3s_admin_allowed_cidrs) > 0 ? [{
       key                      = "i-control"
       description              = "allow traffic to k8s control plane"
@@ -420,6 +457,20 @@ data "aws_iam_policy_document" "this" {
   }
 
   statement {
+    sid    = "AllowWriteOidcDocs"
+    effect = "Allow"
+    actions = [
+      "s3:ListBucket",
+      "s3:PutObject",
+      "s3:DeleteObject",
+    ]
+    resources = [
+      local.irsa_bucket_arn,
+      "${local.irsa_bucket_arn}/*",
+    ]
+  }
+
+  statement {
     sid    = "AllowEc2DescribeInstances"
     effect = "Allow"
     actions = [
@@ -464,11 +515,35 @@ data "aws_iam_policy_document" "this" {
   }
 }
 
+# ==================================================================== irsa ===
+
+module "irsa" {
+  source = "./modules/irsa"
+
+  enabled    = local.irsa_enabled
+  attributes = ["oidc"]
+  aws_region = local.aws_region_name
+
+  context = module.k3s_label.context
+}
+
+module "irsa_smoke_test" {
+  source = "./modules/irsa-smoke/"
+
+  enabled           = local.irsa_smoke_enabled
+  attributes        = ["smoke"]
+  aws_region_name   = local.aws_region_name
+  oidc_provider_arn = local.irsa_oidc_provider_arn
+  issuer_url        = local.irsa_issuer_url
+
+  context = module.this.context
+}
+
 # ================================================================== lookups ===
 
 data "aws_subnet" "lookup" {
   count = local.enabled ? 1 : 0
-  id    = var.server_instances.vpc_subnet_ids[0]
+  id    = local.k3s_server_instances.vpc_subnet_ids[0]
 }
 
 data "aws_ssm_parameter" "linux_ami" {

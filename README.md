@@ -1,5 +1,8 @@
 # terraform-aws-k3s
 
+_This module should be in a working stack, but remains in rapid development.
+Therefore, it will become more stable with v1.0.0 release._
+
 ## Overview
 
 This module provisions a self-managed K3s cluster on AWS EC2, eliminating the

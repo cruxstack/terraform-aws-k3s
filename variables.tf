@@ -15,9 +15,17 @@ variable "k3s_admin_allowed_cidrs" {
   default     = []
 }
 
+variable "aws_irsa" {
+  type = object({
+    enabled     = optional(bool, false)
+    issuer_host = optional(string, "")
+  })
+  description = "AWS IAM roles for service accounts (IRSA) support."
+  default     = {}
+}
 # =========================================================== infrastructure ===
 
-variable "agent_instances" {
+variable "k3s_agent_instances" {
   type = object({
     count          = optional(number, 0)
     key_name       = optional(string, "")
@@ -35,7 +43,7 @@ variable "agent_instances" {
   default     = {}
 }
 
-variable "server_instances" {
+variable "k3s_server_instances" {
   type = object({
     count            = optional(number, 1)
     key_name         = optional(string, "")
@@ -86,6 +94,20 @@ variable "dns" {
     parent_zone_name = optional(string, "")
     names            = optional(list(string), [])
     ttl              = optional(number, 300)
+  })
+  default = {}
+}
+
+variable "vpc_security_group_managed_rules" {
+  type = object({
+    http = optional(object({
+      enabled = optional(bool, true)
+      cidrs   = optional(list(string), ["0.0.0.0/0"])
+    }), {})
+    https = optional(object({
+      enabled = optional(bool, true)
+      cidrs   = optional(list(string), ["0.0.0.0/0"])
+    }), {})
   })
   default = {}
 }
