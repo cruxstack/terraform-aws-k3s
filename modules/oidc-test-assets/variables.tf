@@ -2,7 +2,7 @@ variable "aws_region_name" {
   type = string
 }
 
-variable "issuer_url" {
+variable "oidc_issuer_url" {
   type = string
 }
 

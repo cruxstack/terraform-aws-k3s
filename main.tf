@@ -22,12 +22,12 @@ locals {
   eip_manager_key_value = module.k3s_label.id
   eip_public_ips        = aws_eip.this.*.public_ip
 
-  irsa_enabled           = local.enabled && var.aws_irsa.enabled
-  irsa_issuer_url        = module.irsa.issuer_url
-  irsa_bucket_arn        = module.irsa.bucket_arn
-  irsa_bucket_name       = module.irsa.bucket_name
-  irsa_oidc_provider_arn = module.irsa.oidc_provider_arn
-  irsa_smoke_enabled     = local.irsa_enabled
+  oidc_enabled      = local.enabled && var.k3s_oidc.enabled
+  oidc_issuer_url   = module.oidc.issuer_url
+  oidc_bucket_arn   = module.oidc.bucket_arn
+  oidc_bucket_name  = module.oidc.bucket_name
+  oidc_provider_arn = module.oidc.provider_arn
+  oidc_test_enabled = local.oidc_enabled && var.k3s_oidc.test_assets_enabled
 
   k3s_version          = var.k3s_version
   k3s_cluster_token    = local.enabled ? random_password.k3s_cluster_token[0].result : ""
@@ -257,12 +257,12 @@ data "template_cloudinit_config" "this" {
       k3s_version         = local.k3s_version
       k3s_cluster_token   = local.k3s_cluster_token
       k3s_cluster_domain  = local.dns_enabled ? local.dns_names[0] : ""
-      irsa_enabled        = local.irsa_enabled
-      irsa_issuer_url     = local.irsa_issuer_url
-      irsa_bucket_name    = local.irsa_bucket_name
+      oidc_enabled        = local.oidc_enabled
+      oidc_issuer_url     = local.oidc_issuer_url
+      oidc_bucket_name    = local.oidc_bucket_name
       ssm_param_namespace = local.ssm_param_namespace
-      k3s_sa_private_key  = base64encode(module.irsa.key.private_key)
-      k3s_sa_public_key   = base64encode(module.irsa.key.public_key)
+      k3s_sa_private_key  = base64encode(module.oidc.key.private_key)
+      k3s_sa_public_key   = base64encode(module.oidc.key.public_key)
     })
   }
 }
@@ -465,8 +465,8 @@ data "aws_iam_policy_document" "this" {
       "s3:DeleteObject",
     ]
     resources = [
-      local.irsa_bucket_arn,
-      "${local.irsa_bucket_arn}/*",
+      local.oidc_bucket_arn,
+      "${local.oidc_bucket_arn}/*",
     ]
   }
 
@@ -515,26 +515,26 @@ data "aws_iam_policy_document" "this" {
   }
 }
 
-# ==================================================================== irsa ===
+# ==================================================================== oidc ===
 
-module "irsa" {
-  source = "./modules/irsa"
+module "oidc" {
+  source = "./modules/oidc"
 
-  enabled    = local.irsa_enabled
+  enabled    = local.oidc_enabled
   attributes = ["oidc"]
   aws_region = local.aws_region_name
 
   context = module.k3s_label.context
 }
 
-module "irsa_smoke_test" {
-  source = "./modules/irsa-smoke/"
+module "oidc_test" {
+  source = "./modules/oidc-test-assets/"
 
-  enabled           = local.irsa_smoke_enabled
+  enabled           = local.oidc_test_enabled
   attributes        = ["smoke"]
   aws_region_name   = local.aws_region_name
-  oidc_provider_arn = local.irsa_oidc_provider_arn
-  issuer_url        = local.irsa_issuer_url
+  oidc_provider_arn = local.oidc_provider_arn
+  oidc_issuer_url   = local.oidc_issuer_url
 
   context = module.this.context
 }

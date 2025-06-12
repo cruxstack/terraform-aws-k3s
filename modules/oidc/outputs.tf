@@ -6,7 +6,7 @@ output "issuer_thumbprint" {
   value = local.issuer_thumbprint
 }
 
-output "oidc_provider_arn" {
+output "provider_arn" {
   value = one(aws_iam_openid_connect_provider.this.*.arn)
 }
 

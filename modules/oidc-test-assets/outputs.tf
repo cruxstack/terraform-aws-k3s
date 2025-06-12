@@ -1,7 +1,7 @@
-output "smoke_kube_manifest" {
+output "kube_manifest" {
   value = local.kube_manifest
 }
 
-output "smoke_role_arn" {
+output "iam_role_arn" {
   value = local.iam_role_arn
 }

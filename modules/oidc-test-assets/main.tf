@@ -5,9 +5,9 @@ locals {
   kube_namespace = module.kube_resource_label.id
   kube_name      = module.kube_resource_label.id
 
-  sa_issuer_url        = var.issuer_url
-  sa_issuer_host       = regex("^https://(.*)$", local.sa_issuer_url)[0]
-  sa_oidc_provider_arn = var.oidc_provider_arn
+  oidc_issuer_url   = var.oidc_issuer_url
+  oidc_issuer_host  = regex("^https://(.*)$", local.oidc_issuer_url)[0]
+  oidc_provider_arn = var.oidc_provider_arn
 
   iam_role_arn = local.enabled ? aws_iam_role.this[0].arn : ""
 
@@ -71,12 +71,12 @@ resource "aws_iam_role" "this" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = local.sa_oidc_provider_arn }
+      Principal = { Federated = local.oidc_provider_arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
-          "${local.sa_issuer_host}:aud" = "sts.amazonaws.com"
-          "${local.sa_issuer_host}:sub" = "system:serviceaccount:${local.kube_namespace}:${local.kube_name}"
+          "${local.oidc_issuer_host}:aud" = "sts.amazonaws.com"
+          "${local.oidc_issuer_host}:sub" = "system:serviceaccount:${local.kube_namespace}:${local.kube_name}"
         }
       }
     }]

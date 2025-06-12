@@ -1,8 +1,5 @@
 # terraform-aws-k3s
 
-_This module should be in a working stack, but remains in rapid development.
-Therefore, it will become more stable with v1.0.0 release._
-
 ## Overview
 
 This module provisions a self-managed K3s cluster on AWS EC2, eliminating the
@@ -50,13 +47,14 @@ module "k3s_cluster" {
   source  = "cruxstack/k3s/aws"
   version = "x.x.x"
 
-  server_instances = {
+  name                    = "example"
+  k3s_admin_allowed_cidrs = ["x.x.x.x/32"]
+
+  k3s_server_instances = {
     count            = 1
-    assign_public_ip = 1
+    assign_public_ip = true
     vpc_subnet_ids   = ["subnet-0abcd1234efgh5678"]
   }
-
-  k3s_admin_allowed_cidrs = ["x.x.x.x/32"]
 }
 ```
 
@@ -64,7 +62,7 @@ Fetch the kubeconfig:
 
 ```bash
 aws ssm get-parameter \
-  --name "/prod-k3s/server/kubeconfig" \
+  --name "/k3s-cluster/server/kubeconfig" \
   --with-decryption \
   --region us-east-1 \
   --query "Parameter.Value" --output text \
@@ -78,8 +76,8 @@ kubectl get nodes
 
 | Name                      | Description                                                     | Type                                                                                                                                                                                                                             | Default          |
 | ------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `server_instances`        | Controls number/type of K3s servers; EIP support; subnets.      | `<pre>object({<br>  count: number<br>  key\_name: string<br>  vpc\_subnet\_ids: list(string)<br>  assign\_public\_ip: bool<br>  eip\_enabled: bool<br>  types: list(object({type\:string,weight\:number}))<br>})</pre>           | `{ count=1, … }` |
-| `agent_instances`         | Controls number/type of K3s agents; spot settings; subnets.     | `<pre>object({<br>  count: number<br>  key\_name: string<br>  vpc\_subnet\_ids: list(string)<br>  spot: object({enabled\:bool,allocation\_strategy\:string})<br>  types: list(object({type\:string,weight\:number}))<br>})</pre> | `{ count=0, … }` |
+| `k3s_server_instances`    | Controls number/type of K3s servers; EIP support; subnets.      | `<pre>object({<br>  count: number<br>  key\_name: string<br>  vpc\_subnet\_ids: list(string)<br>  assign\_public\_ip: bool<br>  eip\_enabled: bool<br>  types: list(object({type\:string,weight\:number}))<br>})</pre>           | `{ count=1, … }` |
+| `k3s_agent_instances`     | Controls number/type of K3s agents; spot settings; subnets.     | `<pre>object({<br>  count: number<br>  key\_name: string<br>  vpc\_subnet\_ids: list(string)<br>  spot: object({enabled\:bool,allocation\_strategy\:string})<br>  types: list(object({type\:string,weight\:number}))<br>})</pre> | `{ count=0, … }` |
 | `k3s_version`             | K3s version (“stable”, “latest”, or literal).                   | `string`                                                                                                                                                                                                                         | `"stable"`       |
 | `k3s_admin_allowed_cidrs` | CIDRs allowed to reach API server (port 6443).                  | `list(string)`                                                                                                                                                                                                                   | `[]`             |
 | `ssm_param_namespace`     | Base path for cluster SSM parameters (init-status, kubeconfig). | `string`                                                                                                                                                                                                                         | `"/k3s-cluster"` |

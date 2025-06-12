@@ -15,14 +15,15 @@ variable "k3s_admin_allowed_cidrs" {
   default     = []
 }
 
-variable "aws_irsa" {
+variable "k3s_oidc" {
   type = object({
-    enabled     = optional(bool, false)
-    issuer_host = optional(string, "")
+    enabled             = optional(bool, false)
+    test_assets_enabled = optional(bool, false)
   })
-  description = "AWS IAM roles for service accounts (IRSA) support."
+  description = "Cluster OIDC commonly used for IRSA support."
   default     = {}
 }
+
 # =========================================================== infrastructure ===
 
 variable "k3s_agent_instances" {

@@ -6,9 +6,9 @@ set -eo pipefail
 K3S_VERSION=${k3s_version}
 K3S_CLUSTER_TOKEN=${k3s_cluster_token}
 K3S_CLUSTER_DOMAIN=${k3s_cluster_domain}
-IRSA_ENABLED=${irsa_enabled}
-IRSA_BUCKET_NAME=${irsa_bucket_name}
-IRSA_ISSUER_URL=${irsa_issuer_url}
+IRSA_ENABLED=${oidc_enabled}
+IRSA_BUCKET_NAME=${oidc_bucket_name}
+IRSA_ISSUER_URL=${oidc_issuer_url}
 SSM_PARAM_NAMESPACE=${ssm_param_namespace}
 
 K3S_SA_PRIVATE_KEY=${k3s_sa_private_key}
