@@ -66,13 +66,9 @@ resource "aws_iam_openid_connect_provider" "this" {
 }
 
 resource "tls_private_key" "this" {
+  count = local.enabled ? 1 : 0
+
   algorithm = "RSA"
   rsa_bits  = 2048
 }
 
-output "key" {
-  value = {
-    private_key = tls_private_key.this.private_key_pem
-    public_key  = tls_private_key.this.public_key_pem
-  }
-}

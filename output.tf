@@ -13,8 +13,13 @@ output "oidc_provider_arn" {
   value       = local.oidc_provider_arn
 
 }
+output "oidc_issuer_host" {
+  description = "oidc issuer host"
+  value       = local.oidc_issuer_host
+}
+
 output "oidc_issuer_url" {
-  description = "oidc issuer url configured on the api server"
+  description = "oidc issuer url"
   value       = local.oidc_issuer_url
 }
 

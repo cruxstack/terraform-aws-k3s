@@ -6,7 +6,7 @@ locals {
   kube_name      = module.kube_resource_label.id
 
   oidc_issuer_url   = var.oidc_issuer_url
-  oidc_issuer_host  = regex("^https://(.*)$", local.oidc_issuer_url)[0]
+  oidc_issuer_host  = local.enabled ? regex("^https://(.*)$", local.oidc_issuer_url)[0] : ""
   oidc_provider_arn = var.oidc_provider_arn
 
   iam_role_arn = local.enabled ? aws_iam_role.this[0].arn : ""

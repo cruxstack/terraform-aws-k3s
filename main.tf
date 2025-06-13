@@ -24,6 +24,7 @@ locals {
 
   oidc_enabled      = local.enabled && var.k3s_oidc.enabled
   oidc_issuer_url   = module.oidc.issuer_url
+  oidc_issuer_host  = module.oidc.issuer_host
   oidc_bucket_arn   = module.oidc.bucket_arn
   oidc_bucket_name  = module.oidc.bucket_name
   oidc_provider_arn = module.oidc.provider_arn
@@ -457,20 +458,6 @@ data "aws_iam_policy_document" "this" {
   }
 
   statement {
-    sid    = "AllowWriteOidcDocs"
-    effect = "Allow"
-    actions = [
-      "s3:ListBucket",
-      "s3:PutObject",
-      "s3:DeleteObject",
-    ]
-    resources = [
-      local.oidc_bucket_arn,
-      "${local.oidc_bucket_arn}/*",
-    ]
-  }
-
-  statement {
     sid    = "AllowEc2DescribeInstances"
     effect = "Allow"
     actions = [
@@ -491,6 +478,24 @@ data "aws_iam_policy_document" "this" {
       test     = "StringEquals"
       variable = "ec2:InstanceId"
       values   = ["$${ec2:InstanceId}"]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = local.oidc_enabled ? [true] : []
+
+    content {
+      sid    = "AllowWriteOidcDocs"
+      effect = "Allow"
+      actions = [
+        "s3:ListBucket",
+        "s3:PutObject",
+        "s3:DeleteObject",
+      ]
+      resources = [
+        local.oidc_bucket_arn,
+        "${local.oidc_bucket_arn}/*",
+      ]
     }
   }
 
@@ -536,7 +541,7 @@ module "oidc_test" {
   oidc_provider_arn = local.oidc_provider_arn
   oidc_issuer_url   = local.oidc_issuer_url
 
-  context = module.this.context
+  context = module.k3s_label.context
 }
 
 # ================================================================== lookups ===

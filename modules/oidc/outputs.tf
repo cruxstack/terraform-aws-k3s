@@ -1,9 +1,20 @@
+output "issuer_host" {
+  value = local.issuer_host
+}
+
 output "issuer_url" {
   value = local.issuer_url
 }
 
 output "issuer_thumbprint" {
   value = local.issuer_thumbprint
+}
+
+output "key" {
+  value = {
+    private_key = local.enabled ? one(tls_private_key.this.*.private_key_pem) : ""
+    public_key  = local.enabled ? one(tls_private_key.this.*.public_key_pem) : ""
+  }
 }
 
 output "provider_arn" {
